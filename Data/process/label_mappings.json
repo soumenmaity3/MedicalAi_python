@@ -1,0 +1,24 @@
+{
+    "label_to_id": {
+        "Cardiology": 0,
+        "Dermatology": 1,
+        "Endocrinology": 2,
+        "Gastroenterology": 3,
+        "Infectious": 4,
+        "Neurology": 5,
+        "Orthopedics": 6,
+        "Pulmonology": 7,
+        "Urology": 8
+    },
+    "id_to_label": {
+        "0": "Cardiology",
+        "1": "Dermatology",
+        "2": "Endocrinology",
+        "3": "Gastroenterology",
+        "4": "Infectious",
+        "5": "Neurology",
+        "6": "Orthopedics",
+        "7": "Pulmonology",
+        "8": "Urology"
+    }
+}
