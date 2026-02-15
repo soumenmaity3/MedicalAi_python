@@ -35,19 +35,19 @@ class TrainAndSaveModel:
             # -----------------------
             # Freeze lower layers
             # -----------------------
-            for param in self.model.bert.parameters():
+            # Freeze all distilbert layers
+            for param in self.model.distilbert.parameters():
                 param.requires_grad = False
 
-            # Unfreeze last 3 encoder layers
-            for name, param in self.model.bert.named_parameters():
-                if any(layer in name for layer in ["encoder.layer.9",
-                                                   "encoder.layer.10",
-                                                   "encoder.layer.11"]):
+            # Unfreeze last 2 transformer layers
+            for name, param in self.model.distilbert.named_parameters():
+                if any(layer in name for layer in ["transformer.layer.4", "transformer.layer.5"]):
                     param.requires_grad = True
 
             # Ensure classifier is trainable
             for param in self.model.classifier.parameters():
                 param.requires_grad = True
+
 
             logging.info("Partial fine-tuning enabled (last 3 layers + classifier).")
 

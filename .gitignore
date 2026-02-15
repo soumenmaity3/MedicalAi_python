@@ -80,3 +80,4 @@ Model/trained_model/
 *.pt
 
 hf_login.py
+upload_to_hf.py

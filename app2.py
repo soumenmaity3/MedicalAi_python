@@ -4,162 +4,189 @@ import torch
 import json
 import os
 import zipfile
-import sys
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Set page config
+# -----------------------------
+# Streamlit Config
+# -----------------------------
 st.set_page_config(
     page_title="Medical AI - Symptom Checker",
     page_icon="🩺",
     layout="centered"
 )
 
-# --- Path Setup ---
-# Project root is current directory if running from Symptom2Disease
+# -----------------------------
+# Paths & Constants
+# -----------------------------
 PROJECT_ROOT = Path(__file__).parent
-MODEL_PATH = PROJECT_ROOT / 'Model' / 'trained_model'
-MAPPING_PATH = PROJECT_ROOT / 'Data' / 'process' / 'label_mappings.json'
-MODEL_FILE_ID = "1A3diiWfUX30I9jGwkmgwDzqzsgzSfd5W"
-MODEL_ZIP_PATH = PROJECT_ROOT / "trained_model.zip"
+LOCAL_MODEL_PATH = PROJECT_ROOT / "Model" / "trained_model"
+MAPPING_PATH = PROJECT_ROOT / "Data" / "process" / "label_mappings.json"
+
+HF_MODEL_NAME = "sm89/Symptom2Disease"
+GOOGLE_DRIVE_FILE_ID = "1A3diiWfUX30I9jGwkmgwDzqzsgzSfd5W"
+ZIP_PATH = PROJECT_ROOT / "trained_model.zip"
 
 spell = SpellChecker()
 
+# -----------------------------
+# Spell Correction
+# -----------------------------
 def correct_spelling(text):
     words = text.lower().split()
     corrected = []
-
     for w in words:
         if w.isalpha():
             corrected.append(spell.correction(w) or w)
         else:
             corrected.append(w)
-
     return " ".join(corrected)
 
-
-# --- Load Resources (Cached) ---
-def ensure_model_exists():
-    if MODEL_PATH.exists():
-        return True
-
-    st.info("Local model not found. Downloading pretrained model...")
-
+# -----------------------------
+# Google Drive Download
+# -----------------------------
+def download_from_google_drive():
     try:
         import gdown
-    except Exception:
-        st.error("`gdown` is required to download the pretrained model. Install it with `pip install gdown`.")
+    except:
+        st.error("Install gdown using: pip install gdown")
         return False
 
     try:
-        os.makedirs(MODEL_PATH.parent, exist_ok=True)
-        url = f"https://drive.google.com/uc?id={MODEL_FILE_ID}"
-        gdown.download(url, str(MODEL_ZIP_PATH), quiet=False)
+        st.info("Downloading model from Google Drive...")
+        os.makedirs(LOCAL_MODEL_PATH.parent, exist_ok=True)
 
-        with zipfile.ZipFile(MODEL_ZIP_PATH, "r") as zip_ref:
-            zip_ref.extractall(MODEL_PATH.parent)
+        url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
+        gdown.download(url, str(ZIP_PATH), quiet=False)
 
-        if MODEL_ZIP_PATH.exists():
-            os.remove(MODEL_ZIP_PATH)
+        with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
+            zip_ref.extractall(LOCAL_MODEL_PATH.parent)
 
-        if not MODEL_PATH.exists():
-            st.error("Model download completed but model folder is still missing.")
-            return False
+        os.remove(ZIP_PATH)
 
         st.success("Model downloaded successfully.")
         return True
+
     except Exception as e:
-        st.error(f"Failed to download model: {e}")
+        st.error(f"Download failed: {e}")
         return False
 
+# -----------------------------
+# Load Model
+# -----------------------------
 @st.cache_resource
-def load_model_and_tokenizer():
-    if not ensure_model_exists():
-        return None, None
-    
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
+def load_model(source):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if source == "Local Model":
+        if not LOCAL_MODEL_PATH.exists():
+            st.error("Local model not found.")
+            return None, None
+        model_name = LOCAL_MODEL_PATH
+
+    elif source == "Hugging Face":
+        model_name = HF_MODEL_NAME
+
+    else:  # Google Drive
+        if not LOCAL_MODEL_PATH.exists():
+            if not download_from_google_drive():
+                return None, None
+        model_name = LOCAL_MODEL_PATH
+
     try:
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-        model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+
         model.to(device)
         model.eval()
+
         return model, tokenizer
+
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None, None
 
+# -----------------------------
+# Load Label Mapping
+# -----------------------------
 @st.cache_data
 def load_label_mapping():
     if not MAPPING_PATH.exists():
-        st.error(f"Label mapping not found at {MAPPING_PATH}.")
-        return None
-    
-    try:
-        with open(MAPPING_PATH, 'r') as f:
-            mappings = json.load(f)
-        return mappings['id_to_label']
-    except Exception as e:
-        st.error(f"Error loading mappings: {e}")
+        st.error("Label mapping file not found.")
         return None
 
-# --- UI & Logic ---
+    with open(MAPPING_PATH, "r") as f:
+        mappings = json.load(f)
 
+    return mappings["id_to_label"]
+
+# -----------------------------
+# Main UI
+# -----------------------------
 def main():
     st.title("🩺 Symptom to Disease Predictor")
-    st.markdown("Describe your symptoms in plain English, and the AI will suggest the likely department/condition.")
+    st.markdown("Describe your symptoms and let AI suggest the department.")
 
-    # Load resources
-    model, tokenizer = load_model_and_tokenizer()
+    # Sidebar Options
+    st.sidebar.header("Model Source")
+    model_source = st.sidebar.radio(
+        "Select Model Source:",
+        ["Local Model", "Hugging Face", "Google Drive"]
+    )
+
+    # Load Model
+    model, tokenizer = load_model(model_source)
     id_to_label = load_label_mapping()
-    
+
     if not model or not id_to_label:
         st.stop()
-        
-    # Input
-    user_input = st.text_area("Enter your symptoms:", height=100, placeholder="E.g., I have a bad headache and feel dizzy...")
-    
+
+    user_input = st.text_area(
+        "Enter your symptoms:",
+        height=120,
+        placeholder="E.g., I have fever and headache..."
+    )
+
     if st.button("Analyze Symptoms"):
         if not user_input.strip():
-            st.warning("Please enter some text.")
-        else:
-            with st.spinner("Analyzing..."):
-                # Prediction
-                device = model.device
-                inputs = tokenizer(
-                    correct_spelling(user_input), 
-                    return_tensors="pt", 
-                    truncation=True, 
-                    max_length=128, 
-                    padding=True
-                )
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    logits = outputs.logits
-                    probabilities = torch.softmax(logits, dim=1)
-                    confidence, predicted_class_id = torch.max(probabilities, dim=1)
-                
-                # Get Result
-                pred_idx = str(predicted_class_id.item())
-                predicted_label = id_to_label.get(pred_idx, "Unknown")
-                conf_score = confidence.item() * 100
-                
-                # Display Result
-                st.success("Analysis Complete")
-                st.metric(label="Predicted Condition/Department", value=predicted_label)
-                st.progress(int(conf_score), text=f"Confidence: {conf_score:.2f}%")
-                
-                # Setup details (Optional: Show top 3)
-                top_k = 3
-                top_probs, top_indices = torch.topk(probabilities, top_k)
-                
-                with st.expander("See Top 3 Predictions"):
-                    for prob, idx in zip(top_probs[0], top_indices[0]):
-                        idx_str = str(idx.item())
-                        label = id_to_label.get(idx_str, "Unknown")
-                        st.write(f"- **{label}**: {prob.item()*100:.2f}%")
+            st.warning("Please enter symptoms.")
+            return
+
+        with st.spinner("Analyzing..."):
+
+            device = model.device
+
+            inputs = tokenizer(
+                correct_spelling(user_input),
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=128
+            )
+
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = model(**inputs)
+                probabilities = torch.softmax(outputs.logits, dim=1)
+
+            confidence, predicted_class_id = torch.max(probabilities, dim=1)
+
+            pred_idx = str(predicted_class_id.item())
+            predicted_label = id_to_label.get(pred_idx, "Unknown")
+            conf_score = confidence.item() * 100
+
+            st.success("Analysis Complete")
+            st.metric("Predicted Department", predicted_label)
+            st.progress(int(conf_score), text=f"Confidence: {conf_score:.2f}%")
+
+            top_probs, top_indices = torch.topk(probabilities, 3)
+
+            with st.expander("See Top 3 Predictions"):
+                for prob, idx in zip(top_probs[0], top_indices[0]):
+                    idx_str = str(idx.item())
+                    label = id_to_label.get(idx_str, "Unknown")
+                    st.write(f"- **{label}**: {prob.item()*100:.2f}%")
 
 if __name__ == "__main__":
     main()
