@@ -13,3 +13,4 @@ pyspellchecker
 kaggle
 streamlit
 huggingface_hub
+gunicorn
