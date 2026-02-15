@@ -3,6 +3,7 @@ import torch
 from pathlib import Path
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from download_model import download_model
 
 # -----------------------------
 # Hugging Face Model Name
@@ -10,13 +11,18 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 MODEL_NAME = "sm89/Symptom2Disease"
 
 # -----------------------------
-# Paths (only for label mapping)
+# Ensure model is downloaded
+# -----------------------------
+download_model()
+
+# -----------------------------
+# Paths
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 LABEL_PATH = BASE_DIR / "Data" / "process" / "label_mappings.json"
 
 # -----------------------------
-# Load label mappings
+# Load Label Mappings
 # -----------------------------
 with open(LABEL_PATH, "r") as f:
     mappings = json.load(f)
@@ -24,11 +30,11 @@ with open(LABEL_PATH, "r") as f:
 id_to_label = {int(k): v for k, v in mappings["id_to_label"].items()}
 
 # -----------------------------
-# Load model + tokenizer from Hugging Face
+# Load Model + Tokenizer
 # -----------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-print("Loading tokenizer and model from Hugging Face...")
+print("Loading model into memory...")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
@@ -57,18 +63,18 @@ def predict_department(text):
 
     with torch.no_grad():
         outputs = model(**inputs)
-        logits = outputs.logits
-        probabilities = torch.softmax(logits, dim=1)
+        probabilities = torch.softmax(outputs.logits, dim=1)
 
     probs = probabilities.cpu().numpy()[0]
     top_indices = probs.argsort()[-3:][::-1]
 
-    results = []
-    for idx in top_indices:
-        results.append({
+    results = [
+        {
             "department": id_to_label[idx],
             "confidence": round(float(probs[idx]), 4)
-        })
+        }
+        for idx in top_indices
+    ]
 
     return results
 
