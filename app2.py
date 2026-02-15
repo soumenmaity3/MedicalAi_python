@@ -3,6 +3,7 @@ from spellchecker import SpellChecker
 import torch
 import json
 import os
+import zipfile
 import sys
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -19,6 +20,8 @@ st.set_page_config(
 PROJECT_ROOT = Path(__file__).parent
 MODEL_PATH = PROJECT_ROOT / 'Model' / 'trained_model'
 MAPPING_PATH = PROJECT_ROOT / 'Data' / 'process' / 'label_mappings.json'
+MODEL_FILE_ID = "1A3diiWfUX30I9jGwkmgwDzqzsgzSfd5W"
+MODEL_ZIP_PATH = PROJECT_ROOT / "trained_model.zip"
 
 spell = SpellChecker()
 
@@ -36,11 +39,42 @@ def correct_spelling(text):
 
 
 # --- Load Resources (Cached) ---
+def ensure_model_exists():
+    if MODEL_PATH.exists():
+        return True
+
+    st.info("Local model not found. Downloading pretrained model...")
+
+    try:
+        import gdown
+    except Exception:
+        st.error("`gdown` is required to download the pretrained model. Install it with `pip install gdown`.")
+        return False
+
+    try:
+        os.makedirs(MODEL_PATH.parent, exist_ok=True)
+        url = f"https://drive.google.com/uc?id={MODEL_FILE_ID}"
+        gdown.download(url, str(MODEL_ZIP_PATH), quiet=False)
+
+        with zipfile.ZipFile(MODEL_ZIP_PATH, "r") as zip_ref:
+            zip_ref.extractall(MODEL_PATH.parent)
+
+        if MODEL_ZIP_PATH.exists():
+            os.remove(MODEL_ZIP_PATH)
+
+        if not MODEL_PATH.exists():
+            st.error("Model download completed but model folder is still missing.")
+            return False
+
+        st.success("Model downloaded successfully.")
+        return True
+    except Exception as e:
+        st.error(f"Failed to download model: {e}")
+        return False
 
 @st.cache_resource
 def load_model_and_tokenizer():
-    if not MODEL_PATH.exists():
-        st.error(f"Model not found at {MODEL_PATH}. Please train the model first.")
+    if not ensure_model_exists():
         return None, None
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

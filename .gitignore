@@ -72,3 +72,11 @@ instance/
 # -----------------------------
 # Model/
 # Data/
+
+# Ignore trained models
+Model/trained_model/
+*.safetensors
+*.bin
+*.pt
+
+hf_login.py

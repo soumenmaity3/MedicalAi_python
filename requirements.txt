@@ -9,6 +9,6 @@ kaggle
 transformers
 torch
 pyspellchecker
+kaggle
 streamlit
-pyspellchecker
-flask
+huggingface_hub

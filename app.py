@@ -1,14 +1,18 @@
-import torch
 import json
+import torch
 from pathlib import Path
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # -----------------------------
-# Paths
+# Hugging Face Model Name
+# -----------------------------
+MODEL_NAME = "sm89/Symptom2Disease"
+
+# -----------------------------
+# Paths (only for label mapping)
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "Model" / "trained_model"
 LABEL_PATH = BASE_DIR / "Data" / "process" / "label_mappings.json"
 
 # -----------------------------
@@ -20,12 +24,14 @@ with open(LABEL_PATH, "r") as f:
 id_to_label = {int(k): v for k, v in mappings["id_to_label"].items()}
 
 # -----------------------------
-# Load model + tokenizer
+# Load model + tokenizer from Hugging Face
 # -----------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+print("Loading tokenizer and model from Hugging Face...")
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
 
 model.to(device)
 model.eval()
@@ -36,7 +42,6 @@ print("Model loaded successfully.")
 # Flask App
 # -----------------------------
 app = Flask(__name__)
-
 
 # -----------------------------
 # Prediction Function
@@ -67,14 +72,12 @@ def predict_department(text):
 
     return results
 
-
 # -----------------------------
 # Routes
 # -----------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Medical Department Prediction API Running"})
-
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -84,7 +87,6 @@ def predict():
         return jsonify({"error": "Please provide symptom text"}), 400
 
     text = data["text"]
-
     results = predict_department(text)
 
     return jsonify({
@@ -93,9 +95,8 @@ def predict():
         "final_prediction": results[0]
     })
 
-
 # -----------------------------
 # Run Server
 # -----------------------------
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
