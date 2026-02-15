@@ -1,21 +1,12 @@
-import os
 import json
 import requests
 from flask import Flask, request, jsonify
 from pathlib import Path
 
 # ----------------------------------
-# Hugging Face Router Endpoint
+# Hugging Face Space Endpoint
 # ----------------------------------
-HF_MODEL = "sm89/Symptom2Disease"
-HF_API_URL = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-
-HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}",
-    "Content-Type": "application/json"
-}
+SPACE_API_URL = "https://sm89-symptom2disease-app.hf.space/run/predict"
 
 # ----------------------------------
 # Load Label Mapping
@@ -45,11 +36,12 @@ def predict():
     if not data or "text" not in data:
         return jsonify({"error": "Please provide symptom text"}), 400
 
+    # Gradio expects "data" list format
     payload = {
-        "inputs": data["text"]
+        "data": [data["text"]]
     }
 
-    response = requests.post(HF_API_URL, headers=HEADERS, json=payload)
+    response = requests.post(SPACE_API_URL, json=payload)
 
     if response.status_code != 200:
         return jsonify({
@@ -59,25 +51,12 @@ def predict():
 
     result = response.json()
 
-    # HF returns list of predictions
-    predictions = result[0] if isinstance(result, list) else result
-
-    # Sort top 3
-    predictions = sorted(predictions, key=lambda x: x["score"], reverse=True)[:3]
-
-    formatted = []
-
-    for p in predictions:
-        label_index = p["label"].split("_")[-1]
-        formatted.append({
-            "department": id_to_label[label_index],
-            "confidence": round(p["score"], 4)
-        })
+    # Gradio returns output inside "data"
+    predictions_text = result["data"][0]
 
     return jsonify({
         "input_text": data["text"],
-        "top_predictions": formatted,
-        "final_prediction": formatted[0]
+        "space_response": predictions_text
     })
 
 # ----------------------------------
