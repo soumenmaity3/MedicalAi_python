@@ -66,6 +66,8 @@ instance/
 # Environment variables
 # -----------------------------
 .env
+.ipynb
+.csv
 
 # -----------------------------
 # DO NOT ignore these (important)

@@ -1,185 +1,275 @@
-Perfect 👍 I’ll write the full clean Markdown here so you can copy–paste directly into your project as `DEPLOYMENT_GUIDE.md` or update your `README.md`.
-
-Just copy everything below.
+Perfect. I’ll write it clean and structured so you can copy-paste directly as a `.md` file.
 
 ---
 
-````md
-# Symptom2Disease – Complete Fine-Tuned Model Deployment Guide
+# 🚀 Symptom2Disease — Full Deployment Guide
 
-This document explains the complete end-to-end process:
+## 📌 Overview
 
-1. Fine-tuning a Hugging Face model  
-2. Uploading the model to Hugging Face Hub  
-3. Verifying the upload  
-4. Integrating the model into a Flask API  
-5. Running and testing the API  
+This guide covers the complete process:
 
----
-
-# 1️⃣ Save the Fine-Tuned Model
-
-After training completes, save both the model and tokenizer.
-
-```python
-model.save_pretrained("./trained_model")
-tokenizer.save_pretrained("./trained_model")
-````
-
-Your folder should contain:
-
-```
-trained_model/
- ├── config.json
- ├── model.safetensors  (or pytorch_model.bin)
- ├── tokenizer.json
- ├── tokenizer_config.json
- └── special_tokens_map.json (optional)
-```
+1. Upload fine-tuned model to Hugging Face
+2. Create Docker Space
+3. Build FastAPI backend
+4. Deploy model API
+5. Test using Postman
+6. Use in mobile app
 
 ---
 
-# 2️⃣ Install Hugging Face Hub
+# 🧠 Part 1 — Upload Fine-Tuned Model to Hugging Face
 
-Inside your activated virtual environment:
+## Step 1 — Login to Hugging Face
 
-```bash
-pip install --upgrade huggingface_hub
-```
-
-Verify installation:
-
-```bash
-pip show huggingface_hub
-```
-
----
-
-# 3️⃣ Login to Hugging Face
-
-Create a token:
-
-👉 [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-Create token with **Write** permission.
-
-Login using Python:
+Create a file `hf_login.py`:
 
 ```python
 from huggingface_hub import login
-login(token="YOUR_HF_TOKEN")
+
+login()
 ```
 
-Verify login:
+Run:
 
 ```bash
-python -c "from huggingface_hub import HfApi; print(HfApi().whoami())"
+python hf_login.py
 ```
 
-If it prints your username, login is successful.
+Paste your **Write Token** when asked.
 
 ---
 
-# 4️⃣ Create Model Repository
+## Step 2 — Create Repository
+
+Run in terminal:
 
 ```bash
 python -c "from huggingface_hub import HfApi; HfApi().create_repo(repo_id='sm89/Symptom2Disease', exist_ok=True)"
 ```
 
-Replace `sm89` with your username if different.
-
 ---
 
-# 5️⃣ Upload Model to Hugging Face
+## Step 3 — Upload Model Folder
 
-From your project root:
+Make sure your trained model folder contains:
+
+```
+config.json
+model.safetensors
+tokenizer.json
+tokenizer_config.json
+```
+
+Upload:
 
 ```bash
 python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='Model/trained_model', repo_id='sm89/Symptom2Disease')"
 ```
 
-Wait until upload completes.
-
-If successful, your model is now live at:
-
-```
-https://huggingface.co/sm89/Symptom2Disease
-```
-
 ---
 
-# 6️⃣ Test Loading From Hugging Face
+## Step 4 — Verify Upload
+
+Test locally:
 
 ```bash
 python -c "from transformers import AutoModelForSequenceClassification; AutoModelForSequenceClassification.from_pretrained('sm89/Symptom2Disease'); print('Loaded successfully')"
 ```
 
-If it prints success, the model is working.
+If it loads → upload successful.
 
 ---
 
-# 7️⃣ Integrate Model into Flask API
+# 🚀 Part 2 — Create Docker Space API
 
-Replace local model path with Hugging Face model name.
+## Step 1 — Create New Space
 
-## Old (Local Path)
+Go to:
 
-```python
-MODEL_PATH = BASE_DIR / "Model" / "trained_model"
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+[https://huggingface.co/new-space](https://huggingface.co/new-space)
+
+Fill:
+
+* Owner: sm89
+* Space name: symptom2disease-api
+* SDK: **Docker**
+* Hardware: CPU Basic
+
+Click **Create Space**
+
+---
+
+# 📁 Add Required Files
+
+Your Space must contain:
+
+```
+app.py
+requirements.txt
+Dockerfile
 ```
 
-## New (Hugging Face Hub)
+---
+
+# 📄 app.py (Final Version)
 
 ```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+app = FastAPI(title="Medical Symptom Prediction API")
+
 MODEL_NAME = "sm89/Symptom2Disease"
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
-```
+model.eval()
 
-Keep your label mapping file to convert prediction index → department name.
+id_to_label = {
+    0: "Dermatology",
+    1: "Neurology",
+    2: "Cardiology",
+    3: "Gastroenterology",
+    4: "Orthopedics",
+    5: "ENT",
+    6: "Pulmonology",
+    7: "Urology",
+    8: "General Medicine"
+}
+
+class PredictionRequest(BaseModel):
+    text: str
+
+@app.get("/")
+def health_check():
+    return {"message": "Medical Symptom API Running"}
+
+@app.post("/predict")
+def predict(request: PredictionRequest):
+
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text input cannot be empty")
+
+    inputs = tokenizer(
+        request.text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=128
+    )
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+        probabilities = torch.softmax(outputs.logits, dim=1)
+
+    top_probs, top_indices = torch.topk(probabilities, 3)
+
+    results = []
+
+    for prob, idx in zip(top_probs[0], top_indices[0]):
+        label_index = int(idx.item())
+        results.append({
+            "department": id_to_label.get(label_index, f"LABEL_{label_index}"),
+            "confidence": round(float(prob.item()), 4)
+        })
+
+    return {
+        "input_text": request.text,
+        "top_predictions": results,
+        "final_prediction": results[0]
+    }
+```
 
 ---
 
-# 8️⃣ Prediction Logic
+# 📄 requirements.txt
 
-Use softmax to get probabilities:
-
-```python
-with torch.no_grad():
-    outputs = model(**inputs)
-    probabilities = torch.softmax(outputs.logits, dim=1)
 ```
-
-Sort top predictions:
-
-```python
-probs = probabilities.cpu().numpy()[0]
-top_indices = probs.argsort()[-3:][::-1]
-```
-
-Map to department name using:
-
-```python
-id_to_label[idx]
+fastapi
+uvicorn
+torch
+transformers
 ```
 
 ---
 
-# 9️⃣ Run Flask Server
-
-```bash
-python app.py
-```
-
-Test API:
+# 📄 Dockerfile
 
 ```
-POST http://localhost:5000/predict
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
 ```
 
-Request Body:
+---
+
+# 🚀 Part 3 — Deployment
+
+After committing files:
+
+* Space will start building
+* Dependencies will install
+* Model will download from Hugging Face
+* API will start
+
+Wait until status = **Running**
+
+---
+
+# 🌍 Part 4 — API URL
+
+Your API Base URL:
+
+```
+https://sm89-symptom2disease-api.hf.space
+```
+
+---
+
+# 🧪 Part 5 — Test with Postman
+
+## Health Check
+
+Method: GET
+
+```
+https://sm89-symptom2disease-api.hf.space/
+```
+
+Response:
+
+```json
+{
+  "message": "Medical Symptom API Running"
+}
+```
+
+---
+
+## Prediction Endpoint
+
+Method: POST
+
+```
+https://sm89-symptom2disease-api.hf.space/predict
+```
+
+Headers:
+
+```
+Content-Type: application/json
+```
+
+Body (Raw JSON):
 
 ```json
 {
@@ -187,77 +277,89 @@ Request Body:
 }
 ```
 
-Example Response:
+---
+
+## Expected Response
 
 ```json
 {
-  "final_prediction": {
-    "confidence": 0.5264,
-    "department": "Dermatology"
-  },
   "input_text": "I have fever and headache",
-  "top_predictions": [...]
+  "top_predictions": [
+    {
+      "department": "Orthopedics",
+      "confidence": 0.94
+    },
+    {
+      "department": "ENT",
+      "confidence": 0.02
+    }
+  ],
+  "final_prediction": {
+    "department": "Orthopedics",
+    "confidence": 0.94
+  }
 }
 ```
 
 ---
 
-# 🔟 Production Notes
+# 📱 Part 6 — Use in Mobile App
 
-* Always save label mappings during training
-* Check class imbalance before fine-tuning
-* Use weighted loss if dataset is imbalanced
-* Use Gunicorn for production deployment
-* Consider Docker for portability
-* Add proper README to Hugging Face repo
-* Enable Developer Mode on Windows to remove symlink warning (optional)
-
----
-
-# Final Architecture
+Call:
 
 ```
-Train Model
-    ↓
-Save Model
-    ↓
-Upload to Hugging Face
-    ↓
-Load From Hugging Face in Flask
-    ↓
-Serve Predictions via API
+POST https://sm89-symptom2disease-api.hf.space/predict
 ```
 
-This ensures:
+Send:
 
-✔ Portability
-✔ Reproducibility
-✔ Cloud deployment readiness
-✔ Clean ML engineering workflow
+```json
+{
+  "text": "I have chest pain"
+}
+```
 
----
+Parse:
 
-# Status
-
-Model successfully:
-
-* Fine-tuned
-* Uploaded
-* Loaded from Hub
-* Integrated into Flask
-* Returning predictions
-
-Deployment pipeline completed successfully.
-
+```
+response.final_prediction.department
+response.final_prediction.confidence
 ```
 
 ---
 
-If you want, I can now:
+# 🏗 Final Architecture
 
-- Rewrite this as a professional GitHub README  
-- Add architecture diagram  
-- Or convert this into a portfolio-ready project documentation  
-
-Your pipeline is officially production structured now 🔥
 ```
+Fine-Tune Model
+        ↓
+Upload to HF Model Hub
+        ↓
+Docker Space (FastAPI)
+        ↓
+Public REST API
+        ↓
+Mobile App / Web App
+```
+
+---
+
+# 🎉 You Now Have
+
+* Custom fine-tuned model
+* Hosted on Hugging Face
+* Docker-based API
+* Production REST endpoint
+* Mobile-ready backend
+
+---
+
+If you want next level:
+
+* Add Swagger docs customization
+* Add logging
+* Add authentication
+* Add rate limiting
+* Deploy to AWS
+
+Tell me how far you want to go 🚀

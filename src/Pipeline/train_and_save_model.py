@@ -5,7 +5,8 @@ import errno
 import torch
 from pathlib import Path
 from datetime import datetime
-from sklearn.metrics import accuracy_score, f1_score
+import json
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
 from transformers import get_linear_schedule_with_warmup
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
@@ -54,25 +55,38 @@ class TrainAndSaveModel:
             # -----------------------
             # Optimizer (Differential LR)
             # -----------------------
+            no_decay = ["bias", "LayerNorm.weight"]
             optimizer_grouped_parameters = [
                 {
                     "params": [p for n, p in self.model.named_parameters()
-                               if "bert" in n and p.requires_grad],
+                               if "bert" in n and p.requires_grad and not any(nd in n for nd in no_decay)],
                     "lr": 2e-5,
-                    "weight_decay": 0.01
+                    "weight_decay": 0.1
                 },
                 {
                     "params": [p for n, p in self.model.named_parameters()
-                               if "classifier" in n],
+                               if "bert" in n and p.requires_grad and any(nd in n for nd in no_decay)],
+                    "lr": 2e-5,
+                    "weight_decay": 0.0
+                },
+                {
+                    "params": [p for n, p in self.model.named_parameters()
+                               if ("classifier" in n or "pre_classifier" in n) and p.requires_grad and not any(nd in n for nd in no_decay)],
                     "lr": 5e-5,
-                    "weight_decay": 0.01
+                    "weight_decay": 0.1
+                },
+                {
+                    "params": [p for n, p in self.model.named_parameters()
+                               if ("classifier" in n or "pre_classifier" in n) and p.requires_grad and any(nd in n for nd in no_decay)],
+                    "lr": 5e-5,
+                    "weight_decay": 0.0
                 }
             ]
 
             self.optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
 
-            self.epochs = 4
-            self.patience = 2
+            self.epochs = 6
+            self.patience = 3
             self.max_grad_norm = 1.0
 
             total_steps = len(self.train_loader) * self.epochs
@@ -103,7 +117,7 @@ class TrainAndSaveModel:
         best_val_loss = float("inf")
         epochs_without_improvement = 0
 
-        loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=0.1)
+        loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=0.2)
 
         for epoch in range(self.epochs):
 
@@ -153,6 +167,20 @@ class TrainAndSaveModel:
             avg_val_loss = total_val_loss / len(self.val_loader)
             val_acc = accuracy_score(true_labels, preds)
             val_f1 = f1_score(true_labels, preds, average='weighted')
+            val_precision = precision_score(true_labels, preds, average='weighted', zero_division=0)
+            val_recall = recall_score(true_labels, preds, average='weighted', zero_division=0)
+            
+            # Detailed metrics dictionary
+            metrics_dict = {
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "val_loss": avg_val_loss,
+                "val_accuracy": val_acc,
+                "val_f1_weighted": val_f1,
+                "val_precision_weighted": val_precision,
+                "val_recall_weighted": val_recall,
+                "classification_report": classification_report(true_labels, preds, output_dict=True, zero_division=0)
+            }
 
             logging.info(
                 f"Epoch {epoch+1}/{self.epochs} | "
@@ -176,7 +204,7 @@ class TrainAndSaveModel:
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 epochs_without_improvement = 0
-                self.save_model(epoch + 1, val_f1)
+                self.save_model(epoch + 1, metrics_dict)
             else:
                 epochs_without_improvement += 1
 
@@ -189,7 +217,7 @@ class TrainAndSaveModel:
     # -------------------------------------------------------
     # SAVE MODEL
     # -------------------------------------------------------
-    def save_model(self, epoch, val_f1):
+    def save_model(self, epoch, metrics_dict):
         try:
             logging.info(f"Saving model (epoch {epoch})...")
 
@@ -197,8 +225,13 @@ class TrainAndSaveModel:
 
             self.model.save_pretrained(self.model_save_path)
             self.tokenizer.save_pretrained(self.model_save_path)
+            
+            metrics_file = os.path.join(self.model_save_path, "metrics.json")
+            import json
+            with open(metrics_file, "w") as f:
+                json.dump(metrics_dict, f, indent=4)
 
-            logging.info("Model saved successfully.")
+            logging.info("Model and metrics saved successfully.")
 
         except Exception as e:
             logging.error(f"Error saving model: {e}")

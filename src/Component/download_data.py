@@ -23,7 +23,7 @@ class DownloaAndExtractData:
         logging.info(f'Checking: {self.EXTRACT_PATH}')
         if not self.EXTRACT_PATH.exists():
             logging.info('Dataset folder not found..')
-            return False , 'Dataset folder not found'
+            return False , '    Dataset folder not found'
 
         # Check if folder is empty (if it has items, any(iterdir()) is True)
         if not any(self.EXTRACT_PATH.iterdir()):

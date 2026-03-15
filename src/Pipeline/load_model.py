@@ -19,7 +19,8 @@ class LoadModel:
             self.model_name,
             num_labels=self.num_labels,
             dropout=0.3,
-            attention_dropout=0.3  
+            attention_dropout=0.3,
+            seq_classif_dropout=0.3
         )
         
     def run(self):
